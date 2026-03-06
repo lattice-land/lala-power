@@ -253,9 +253,28 @@ public:
     return pop(push(split->split()));
   }
 
+  CUDA bool fdeduce(const VarEnv<allocator_type>& env, const double epsilon) {
+    return pop(push(split->fsplit(env, epsilon)));
+  }
+
+  CUDA bool is_unknown(const double epsilon) {
+    for(int i = 0; i < a->vars(); ++i) {
+      const auto& var = (*a)[i];
+      if(var.width().lb().value() > epsilon) {
+        return false; 
+      }
+    }
+    return true;
+  }
+
   template <class ExtractionStrategy = NonAtomicExtraction>
   CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy()) const {
     return !is_bot() && a->is_extractable(strategy);
+  }
+
+  template <class ExtractionStrategy = NonAtomicExtraction>
+  CUDA bool is_fextractable(const ExtractionStrategy& strategy = ExtractionStrategy(), const double epsilon = 1e-6) const {
+    return !is_bot() && a->is_fextractable(strategy, epsilon);
   }
 
   /** Extract an under-approximation if the last node popped \f$ a \f$ is an under-approximation.
@@ -271,6 +290,20 @@ public:
     }
     else {
       a->extract(ua);
+    }
+  }
+
+  template <class B>
+  CUDA void fextract(B& ua) const {
+    if constexpr(impl::is_search_tree_like<B>::value) {
+      assert(bool(ua.a));
+      a->fextract(*ua.a);
+      ua.stack.clear();
+      ua.root_tell.sub_tells.clear();
+      ua.root_tell.split_tells.clear();
+    }
+    else {
+      a->fextract(ua);
     }
   }
 

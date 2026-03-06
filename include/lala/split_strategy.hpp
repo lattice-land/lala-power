@@ -20,7 +20,7 @@ enum class VariableOrder {
   ANTI_FIRST_FAIL,
   SMALLEST,
   LARGEST,
-  RANDOM
+  RANDOM,
   // unsupported:
   // OCCURRENCE,
   // MOST_CONSTRAINED,
@@ -231,6 +231,22 @@ private:
     }
   }
 
+  CUDA NI void fmove_to_next_unassigned_var(const double epsilon) {
+    while(current_strategy < strategies.size()) {
+      const auto& vars = current_vars();
+      int n = vars.empty() ? a->vars() : vars.size();
+      while(next_unassigned_var < n) {
+        universe_type v = (*a)[vars.empty() ? next_unassigned_var : vars[next_unassigned_var].vid()];
+        if(v.width().lb().value() > epsilon) {
+          return;
+        }
+        next_unassigned_var++;
+      }
+      current_strategy++;
+      next_unassigned_var = 0;
+    }
+  }
+
   template <class MapFunction>
   CUDA NI AVar var_map_fold_left(const battery::vector<AVar, allocator_type>& vars, MapFunction op) {
     int i = next_unassigned_var;
@@ -240,6 +256,23 @@ private:
     for(++i; i < n; ++i) {
       const auto& u = (*a)[vars.empty() ? i : vars[i].vid()];
       if(u.lb().value() != u.ub().value()) {
+        if(best.meet(op(u))) {
+          best_i = i;
+        }
+      }
+    }
+    return vars.empty() ? AVar{var_aty, best_i} : vars[best_i];
+  }
+
+  template <class MapFunction>
+  CUDA NI AVar fvar_map_fold_left(const battery::vector<AVar, allocator_type>& vars, MapFunction op, const double epsilon) {
+    int i = next_unassigned_var;
+    int best_i = i;
+    auto best = op((*a)[vars.empty() ? i : vars[i].vid()]);
+    int n = vars.empty() ? a->vars() : vars.size();
+    for(++i; i < n; ++i) {
+      const auto& u = (*a)[vars.empty() ? i : vars[i].vid()];
+      if(u.width().lb().value() > epsilon) {
         if(best.meet(op(u))) {
           best_i = i;
         }
@@ -262,6 +295,20 @@ private:
     }
   }
 
+  CUDA AVar select_fvar(const VarEnv<allocator_type>& env, const double epsilon) {
+    const auto& strat = strategies[current_strategy];
+    const auto& vars = strat.vars;
+    switch(strat.var_order) {
+      case VariableOrder::RANDOM:
+      case VariableOrder::INPUT_ORDER: return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var];
+      case VariableOrder::FIRST_FAIL: return fvar_map_fold_left(vars, [](const universe_type& u) { return u.width().ub(); }, epsilon);
+      case VariableOrder::ANTI_FIRST_FAIL: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
+      case VariableOrder::LARGEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); }, epsilon);
+      case VariableOrder::SMALLEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<UB>(u.lb()); }, epsilon);
+      default: printf("BUG: unsupported variable order strategy\n"); assert(false); return AVar{};
+    }
+  }
+
   template <class U>
   CUDA NI branch_type make_branch(AVar x, Sig left_op, Sig right_op, const U& u) {
     if((u.is_top() && U::preserve_top) || (u.is_bot() && U::preserve_bot)) {
@@ -273,7 +320,7 @@ private:
     using F = TFormula<allocator_type>;
     using branch_vector = battery::vector<sub_tell_type, allocator_type>;
     VarEnv<allocator_type> empty_env{};
-    auto k = u.template deinterpret<F>();
+    auto k = u.template deinterpret<F>(); 
     IDiagnostics diagnostics;
     sub_tell_type left(get_allocator());
     sub_tell_type right(get_allocator());
@@ -434,6 +481,29 @@ public:
         // case ValueOrder::MEDIAN: return make_branch(x, EQ, NEQ, a->project(x).median().lb());
         case ValueOrder::SPLIT: return make_branch(x, LEQ, GT, a->project(x).median().lb());
         case ValueOrder::REVERSE_SPLIT: return make_branch(x, GT, LEQ, a->project(x).median().lb());
+        default: printf("BUG: unsupported value order strategy\n"); assert(false); return branch_type(get_allocator());
+      }
+    }
+    else {
+      // printf("%% All variables are already assigned, we could not split anymore. It means the underlying abstract domain has not detected the satisfiability or unsatisfiability of the problem although all variables were assigned.\n");
+      return branch_type(get_allocator());
+    }
+  }
+
+  CUDA NI branch_type fsplit(const VarEnv<allocator_type>& env, const double epsilon) {
+    if(a->is_bot()) {
+      return branch_type(get_allocator());
+    }
+    fmove_to_next_unassigned_var(epsilon);
+    if(current_strategy < strategies.size()) {
+      AVar x = select_fvar(env, epsilon);
+      // printf("split on %d ", x.vid());
+      const auto& dom = a->project(x);
+      auto mid = battery::add_down(dom.lb().value(), battery::div_down(battery::sub_down(dom.ub().value(), dom.lb().value()), 2.0));
+      // printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
+      switch(strategies[current_strategy].val_order) {
+        case ValueOrder::SPLIT: return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
+        case ValueOrder::REVERSE_SPLIT: return make_branch(x, GEQ, LEQ, local::FLB::local_type(mid));
         default: printf("BUG: unsupported value order strategy\n"); assert(false); return branch_type(get_allocator());
       }
     }
