@@ -499,7 +499,10 @@ public:
       AVar x = select_fvar(env, epsilon);
       // printf("split on %d ", x.vid());
       const auto& dom = a->project(x);
-      auto mid = battery::add_down(dom.lb().value(), battery::div_down(battery::sub_down(dom.ub().value(), dom.lb().value()), 2.0));
+      using value_type = decltype(dom.ub().value());
+      value_type width = battery::sub_down(dom.ub().value(), dom.lb().value());
+      value_type half = battery::div_down(width, value_type(2.0));
+      value_type mid = battery::add_down(dom.lb().value(), half);
       // printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
       switch(strategies[current_strategy].val_order) {
         case ValueOrder::SPLIT: return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
