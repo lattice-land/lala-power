@@ -251,13 +251,6 @@ public:
     return true;
   }
 
-  CUDA local::B fdeduce() {
-    // extract;
-    sub->fextract(*best);
-    solutions_found++;
-    return true;
-  }
-
   CUDA int solutions_count() const {
     return solutions_found;
   }

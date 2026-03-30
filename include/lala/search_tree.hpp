@@ -293,20 +293,6 @@ public:
     }
   }
 
-  template <class B>
-  CUDA void fextract(B& ua) const {
-    if constexpr(impl::is_search_tree_like<B>::value) {
-      assert(bool(ua.a));
-      a->fextract(*ua.a);
-      ua.stack.clear();
-      ua.root_tell.sub_tells.clear();
-      ua.root_tell.split_tells.clear();
-    }
-    else {
-      a->fextract(ua);
-    }
-  }
-
   /** If the search tree is empty (\f$ \top \f$), we return \f$ \top_U \f$.
    * If the search tree consists of a single node \f$ \{a\} \f$, we return the projection of `x` in that node.
    * Projection in a search tree with multiple nodes is currently not supported (assert false). */
