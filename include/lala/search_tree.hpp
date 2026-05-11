@@ -253,22 +253,16 @@ public:
     return pop(push(split->split()));
   }
 
-  CUDA bool fdeduce(const VarEnv<allocator_type>& env, const double epsilon) {
+  CUDA bool fdeduce(const VarEnv<allocator_type>& env, const float epsilon) {
     return pop(push(split->fsplit(env, epsilon)));
   }
 
-  CUDA bool is_unknown(const double epsilon) {
-    for(int i = 0; i < a->vars(); ++i) {
-      const auto& var = (*a)[i];
-      if(var.width().ub().value() > epsilon) {
-        return false; 
-      }
-    }
-    return true;
+  CUDA bool is_unknown(const VarEnv<allocator_type>& env, const float epsilon) {
+    return split->is_unknown(env, epsilon);
   }
 
   template <class ExtractionStrategy = NonAtomicExtraction>
-  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy(), const double epsilon = 1e-6) const {
+  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy(), const float epsilon = 1e-6) const {
     return !is_bot() && a->is_extractable(strategy, epsilon);
   }
 

@@ -236,13 +236,13 @@ private:
     }
   }
 
-  CUDA NI void fmove_to_next_unassigned_var(const double epsilon) {
+  CUDA NI void fmove_to_next_unassigned_var(const float epsilon) {
     while(current_strategy < strategies.size()) {
       const auto& vars = current_vars();
       int n = vars.empty() ? a->vars() : vars.size();
       while(next_unassigned_var < n) {
         universe_type v = (*a)[vars.empty() ? next_unassigned_var : vars[next_unassigned_var].vid()];
-        if(v.width().lb().value() >= epsilon) {
+        if(v.width().ub().value() > epsilon) {
           return;
         }
         next_unassigned_var++;
@@ -270,7 +270,7 @@ private:
   }
 
   template <class MapFunction>
-  CUDA NI AVar fvar_map_fold_left(const battery::vector<AVar, allocator_type>& vars, MapFunction op, const double epsilon) {
+  CUDA NI AVar fvar_map_fold_left(const battery::vector<AVar, allocator_type>& vars, MapFunction op, const float epsilon) {
     int i = next_unassigned_var;
     int best_i = i;
     auto best = op((*a)[vars.empty() ? i : vars[i].vid()]);
@@ -297,7 +297,7 @@ private:
     }
   }
 
-  CUDA AVar select_fvar(const VarEnv<allocator_type>& env, const double epsilon) {
+  CUDA AVar select_fvar(const VarEnv<allocator_type>& env, const float epsilon) {
     const auto& strat = strategies[current_strategy];
     const auto& vars = strat.vars;
     switch(strat.var_order) {
@@ -315,8 +315,8 @@ private:
           const auto& u = (*a)[avar.vid()];
           const auto& name = env.name_of(avar);
           int count = 0;
-          for (int i = 0; i < name.size(); ++i) {
-            if (name[i] == '_') count++;
+          for (int j = 0; j < name.size(); ++j) {
+            if (name[j] == '_') count++;
             if (count > 1) break;
           }
           if (count == 1) {
@@ -328,10 +328,12 @@ private:
           }
           else break;
         }
-        if (max_width != -1)
+        // if (max_width != -1)
           return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var];
-        else
-          return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
+        // else {
+        //   printf("All input neurons are splitted!\n");
+        //   return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
+        // }
       }
       default: printf("BUG: unsupported variable order strategy\n"); assert(false); return AVar{};
     }
@@ -519,20 +521,24 @@ public:
     }
   }
 
-  CUDA NI branch_type fsplit(const VarEnv<allocator_type>& env, const double epsilon) {
+  CUDA NI branch_type fsplit(const VarEnv<allocator_type>& env, const float epsilon) {
     if(a->is_bot()) {
+      return branch_type(get_allocator());
+    }
+    if(is_unknown(env, epsilon)) {
       return branch_type(get_allocator());
     }
     fmove_to_next_unassigned_var(epsilon);
     if(current_strategy < strategies.size()) {
       AVar x = select_fvar(env, epsilon);
-      // printf("split on %d ", x.vid());
+      printf("split on %d ", x.vid());
       const auto& dom = a->project(x);
       using value_type = decltype(dom.ub().value());
-      value_type width = battery::sub_up(dom.ub().value(), dom.lb().value());
-      value_type half = battery::div_up(width, value_type(2.0));
-      value_type mid = battery::add_up(dom.lb().value(), half);
-      // printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
+      // value_type width = battery::sub_up(dom.ub().value(), dom.lb().value());
+      // value_type half = battery::div_up(width, value_type(2.0));
+      // value_type mid = battery::add_up(dom.lb().value(), half);
+      value_type mid = battery::midpoint(dom.lb().value(), dom.ub().value());
+      printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
       // if (x.vid() >= 6) return branch_type(get_allocator());
       switch(strategies[current_strategy].val_order) {
         case ValueOrder::SPLIT: return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
@@ -544,6 +550,28 @@ public:
       // printf("%% All variables are already assigned, we could not split anymore. It means the underlying abstract domain has not detected the satisfiability or unsatisfiability of the problem although all variables were assigned.\n");
       return branch_type(get_allocator());
     }
+  }
+
+  CUDA NI bool is_unknown(const VarEnv<allocator_type>& env, const float epsilon) {
+    const auto& strat = strategies[current_strategy];
+    const auto& vars = strat.vars;
+    int n = vars.empty() ? a->vars() : vars.size();
+    for (int i = 0; i < n; ++i) {
+      const auto avar = vars.empty() ? AVar{var_aty, i} : vars[i];
+      const auto& u = (*a)[avar.vid()];
+      const auto& name = env.name_of(avar);
+      int count = 0;
+      for (int j = 0; j < name.size(); ++j) {
+        if (name[j] == '_' && name[0] == 'X') count++;
+        if (count > 1) break;
+      }
+      if (count == 1) {
+        if(u.width().ub().value() > epsilon) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   CUDA size_t num_strategies() const {
