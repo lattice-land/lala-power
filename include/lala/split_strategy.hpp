@@ -21,6 +21,7 @@ enum class VariableOrder {
   SMALLEST,
   LARGEST,
   RANDOM,
+  LARGEST_WIDTH_INPUT,
   // unsupported:
   // OCCURRENCE,
   // MOST_CONSTRAINED,
@@ -36,6 +37,7 @@ inline const char* string_of_variable_order(VariableOrder order) {
     case VariableOrder::SMALLEST: return "smallest";
     case VariableOrder::LARGEST: return "largest";
     case VariableOrder::RANDOM: return "random";
+    case VariableOrder::LARGEST_WIDTH_INPUT: return "largest_width_input";
     default: return "unknown";
   }
 }
@@ -59,6 +61,9 @@ std::optional<VariableOrder> variable_order_of_string(const StringType& str) {
   }
   else if(str == "random") {
     return VariableOrder::RANDOM;
+  }
+  else if (str == "largest_width_input") {
+    return VariableOrder::LARGEST_WIDTH_INPUT;
   }
   else {
     return std::nullopt;
@@ -237,7 +242,7 @@ private:
       int n = vars.empty() ? a->vars() : vars.size();
       while(next_unassigned_var < n) {
         universe_type v = (*a)[vars.empty() ? next_unassigned_var : vars[next_unassigned_var].vid()];
-        if(v.width().lb().value() > epsilon) {
+        if(v.width().lb().value() >= epsilon) {
           return;
         }
         next_unassigned_var++;
@@ -272,7 +277,7 @@ private:
     int n = vars.empty() ? a->vars() : vars.size();
     for(++i; i < n; ++i) {
       const auto& u = (*a)[vars.empty() ? i : vars[i].vid()];
-      if(u.width().lb().value() > epsilon) {
+      if(u.width().ub().value() > epsilon) {
         if(best.meet(op(u))) {
           best_i = i;
         }
@@ -286,10 +291,7 @@ private:
     const auto& vars = strat.vars;
     switch(strat.var_order) {
       case VariableOrder::RANDOM:
-      case VariableOrder::INPUT_ORDER: return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var];
-      case VariableOrder::FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return u.width().ub(); });
-      case VariableOrder::ANTI_FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); });
-      case VariableOrder::LARGEST: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); });
+      case VariableOrder::INPUT_ORDER: return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var]; case VariableOrder::FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return u.width().ub(); }); case VariableOrder::ANTI_FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }); case VariableOrder::LARGEST: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); });
       case VariableOrder::SMALLEST: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<UB>(u.lb()); });
       default: printf("BUG: unsupported variable order strategy\n"); assert(false); return AVar{};
     }
@@ -305,6 +307,32 @@ private:
       case VariableOrder::ANTI_FIRST_FAIL: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
       case VariableOrder::LARGEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); }, epsilon);
       case VariableOrder::SMALLEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<UB>(u.lb()); }, epsilon);
+      case VariableOrder::LARGEST_WIDTH_INPUT: {
+        float max_width = -1;
+        int n = vars.empty() ? a->vars() : vars.size();
+        for (int i = 0; i < n; ++i) {
+          const auto avar = vars.empty() ? AVar{var_aty, i} : vars[i];
+          const auto& u = (*a)[avar.vid()];
+          const auto& name = env.name_of(avar);
+          int count = 0;
+          for (int i = 0; i < name.size(); ++i) {
+            if (name[i] == '_') count++;
+            if (count > 1) break;
+          }
+          if (count == 1) {
+            float width = u.width().ub().value();
+            if (width > epsilon && width > max_width) {
+              max_width = width;
+              next_unassigned_var = i;
+            }
+          }
+          else break;
+        }
+        if (max_width != -1)
+          return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var];
+        else
+          return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
+      }
       default: printf("BUG: unsupported variable order strategy\n"); assert(false); return AVar{};
     }
   }
@@ -407,6 +435,7 @@ public:
     else if(var_order_str == "smallest") { strat.var_order = VariableOrder::SMALLEST; }
     else if(var_order_str == "largest") { strat.var_order = VariableOrder::LARGEST; }
     else if(var_order_str == "random") { strat.var_order = VariableOrder::RANDOM; }
+    else if(var_order_str == "largest_width_input") { strat.var_order = VariableOrder::LARGEST_WIDTH_INPUT; }
     else {
       RETURN_INTERPRETATION_ERROR("This variable order strategy is unsupported.");
     }
@@ -500,10 +529,11 @@ public:
       // printf("split on %d ", x.vid());
       const auto& dom = a->project(x);
       using value_type = decltype(dom.ub().value());
-      value_type width = battery::sub_down(dom.ub().value(), dom.lb().value());
-      value_type half = battery::div_down(width, value_type(2.0));
-      value_type mid = battery::add_down(dom.lb().value(), half);
+      value_type width = battery::sub_up(dom.ub().value(), dom.lb().value());
+      value_type half = battery::div_up(width, value_type(2.0));
+      value_type mid = battery::add_up(dom.lb().value(), half);
       // printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
+      // if (x.vid() >= 6) return branch_type(get_allocator());
       switch(strategies[current_strategy].val_order) {
         case ValueOrder::SPLIT: return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
         case ValueOrder::REVERSE_SPLIT: return make_branch(x, GEQ, LEQ, local::FLB::local_type(mid));

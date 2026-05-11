@@ -260,7 +260,7 @@ public:
   CUDA bool is_unknown(const double epsilon) {
     for(int i = 0; i < a->vars(); ++i) {
       const auto& var = (*a)[i];
-      if(var.width().lb().value() > epsilon) {
+      if(var.width().ub().value() > epsilon) {
         return false; 
       }
     }
