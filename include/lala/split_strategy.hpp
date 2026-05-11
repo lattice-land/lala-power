@@ -531,14 +531,14 @@ public:
     fmove_to_next_unassigned_var(epsilon);
     if(current_strategy < strategies.size()) {
       AVar x = select_fvar(env, epsilon);
-      printf("split on %d ", x.vid());
+      // printf("split on %d ", x.vid());
       const auto& dom = a->project(x);
       using value_type = decltype(dom.ub().value());
       // value_type width = battery::sub_up(dom.ub().value(), dom.lb().value());
       // value_type half = battery::div_up(width, value_type(2.0));
       // value_type mid = battery::add_up(dom.lb().value(), half);
       value_type mid = battery::midpoint(dom.lb().value(), dom.ub().value());
-      printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
+      // printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
       // if (x.vid() >= 6) return branch_type(get_allocator());
       switch(strategies[current_strategy].val_order) {
         case ValueOrder::SPLIT: return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
