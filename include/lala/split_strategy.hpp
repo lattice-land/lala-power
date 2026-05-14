@@ -21,7 +21,6 @@ enum class VariableOrder {
   SMALLEST,
   LARGEST,
   RANDOM,
-  LARGEST_WIDTH_INPUT,
   // unsupported:
   // OCCURRENCE,
   // MOST_CONSTRAINED,
@@ -37,7 +36,6 @@ inline const char* string_of_variable_order(VariableOrder order) {
     case VariableOrder::SMALLEST: return "smallest";
     case VariableOrder::LARGEST: return "largest";
     case VariableOrder::RANDOM: return "random";
-    case VariableOrder::LARGEST_WIDTH_INPUT: return "largest_width_input";
     default: return "unknown";
   }
 }
@@ -61,9 +59,6 @@ std::optional<VariableOrder> variable_order_of_string(const StringType& str) {
   }
   else if(str == "random") {
     return VariableOrder::RANDOM;
-  }
-  else if (str == "largest_width_input") {
-    return VariableOrder::LARGEST_WIDTH_INPUT;
   }
   else {
     return std::nullopt;
@@ -307,34 +302,6 @@ private:
       case VariableOrder::ANTI_FIRST_FAIL: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
       case VariableOrder::LARGEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); }, epsilon);
       case VariableOrder::SMALLEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<UB>(u.lb()); }, epsilon);
-      case VariableOrder::LARGEST_WIDTH_INPUT: {
-        float max_width = -1;
-        int n = vars.empty() ? a->vars() : vars.size();
-        for (int i = 0; i < n; ++i) {
-          const auto avar = vars.empty() ? AVar{var_aty, i} : vars[i];
-          const auto& u = (*a)[avar.vid()];
-          const auto& name = env.name_of(avar);
-          int count = 0;
-          for (int j = 0; j < name.size(); ++j) {
-            if (name[j] == '_') count++;
-            if (count > 1) break;
-          }
-          if (count == 1) {
-            float width = u.width().ub().value();
-            if (width > epsilon && width > max_width) {
-              max_width = width;
-              next_unassigned_var = i;
-            }
-          }
-          else break;
-        }
-        // if (max_width != -1)
-          return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var];
-        // else {
-        //   printf("All input neurons are splitted!\n");
-        //   return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
-        // }
-      }
       default: printf("BUG: unsupported variable order strategy\n"); assert(false); return AVar{};
     }
   }
@@ -437,7 +404,6 @@ public:
     else if(var_order_str == "smallest") { strat.var_order = VariableOrder::SMALLEST; }
     else if(var_order_str == "largest") { strat.var_order = VariableOrder::LARGEST; }
     else if(var_order_str == "random") { strat.var_order = VariableOrder::RANDOM; }
-    else if(var_order_str == "largest_width_input") { strat.var_order = VariableOrder::LARGEST_WIDTH_INPUT; }
     else {
       RETURN_INTERPRETATION_ERROR("This variable order strategy is unsupported.");
     }
@@ -534,9 +500,6 @@ public:
       // printf("split on %d ", x.vid());
       const auto& dom = a->project(x);
       using value_type = decltype(dom.ub().value());
-      // value_type width = battery::sub_up(dom.ub().value(), dom.lb().value());
-      // value_type half = battery::div_up(width, value_type(2.0));
-      // value_type mid = battery::add_up(dom.lb().value(), half);
       value_type mid = battery::midpoint(dom.lb().value(), dom.ub().value());
       // printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
       // if (x.vid() >= 6) return branch_type(get_allocator());
@@ -555,20 +518,10 @@ public:
   CUDA NI bool is_unknown(const VarEnv<allocator_type>& env, const float epsilon) {
     const auto& strat = strategies[current_strategy];
     const auto& vars = strat.vars;
-    int n = vars.empty() ? a->vars() : vars.size();
-    for (int i = 0; i < n; ++i) {
-      const auto avar = vars.empty() ? AVar{var_aty, i} : vars[i];
-      const auto& u = (*a)[avar.vid()];
-      const auto& name = env.name_of(avar);
-      int count = 0;
-      for (int j = 0; j < name.size(); ++j) {
-        if (name[j] == '_' && name[0] == 'X') count++;
-        if (count > 1) break;
-      }
-      if (count == 1) {
-        if(u.width().ub().value() > epsilon) {
-          return false;
-        }
+    for (int i = 0; i < vars.size(); ++i) {
+      const auto& u = (*a)[vars[i].vid()];
+      if(u.width().ub().value() > epsilon) {
+        return false;
       }
     }
     return true;
