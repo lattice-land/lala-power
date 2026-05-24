@@ -231,22 +231,6 @@ private:
     }
   }
 
-  CUDA NI void fmove_to_next_unassigned_var(const float epsilon) {
-    while(current_strategy < strategies.size()) {
-      const auto& vars = current_vars();
-      int n = vars.empty() ? a->vars() : vars.size();
-      while(next_unassigned_var < n) {
-        universe_type v = (*a)[vars.empty() ? next_unassigned_var : vars[next_unassigned_var].vid()];
-        if(v.width().ub().value() > epsilon) {
-          return;
-        }
-        next_unassigned_var++;
-      }
-      current_strategy++;
-      next_unassigned_var = 0;
-    }
-  }
-
   template <class MapFunction>
   CUDA NI AVar var_map_fold_left(const battery::vector<AVar, allocator_type>& vars, MapFunction op) {
     int i = next_unassigned_var;
@@ -264,44 +248,16 @@ private:
     return vars.empty() ? AVar{var_aty, best_i} : vars[best_i];
   }
 
-  template <class MapFunction>
-  CUDA NI AVar fvar_map_fold_left(const battery::vector<AVar, allocator_type>& vars, MapFunction op, const float epsilon) {
-    int i = next_unassigned_var;
-    int best_i = i;
-    auto best = op((*a)[vars.empty() ? i : vars[i].vid()]);
-    int n = vars.empty() ? a->vars() : vars.size();
-    for(++i; i < n; ++i) {
-      const auto& u = (*a)[vars.empty() ? i : vars[i].vid()];
-      if(u.width().ub().value() > epsilon) {
-        if(best.meet(op(u))) {
-          best_i = i;
-        }
-      }
-    }
-    return vars.empty() ? AVar{var_aty, best_i} : vars[best_i];
-  }
-
   CUDA AVar select_var() {
     const auto& strat = strategies[current_strategy];
     const auto& vars = strat.vars;
     switch(strat.var_order) {
       case VariableOrder::RANDOM:
-      case VariableOrder::INPUT_ORDER: return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var]; case VariableOrder::FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return u.width().ub(); }); case VariableOrder::ANTI_FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }); case VariableOrder::LARGEST: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); });
+      case VariableOrder::INPUT_ORDER: return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var]; 
+      case VariableOrder::FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return u.width().ub(); }); 
+      case VariableOrder::ANTI_FIRST_FAIL: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }); 
+      case VariableOrder::LARGEST: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); });
       case VariableOrder::SMALLEST: return var_map_fold_left(vars, [](const universe_type& u) { return dual_bound<UB>(u.lb()); });
-      default: printf("BUG: unsupported variable order strategy\n"); assert(false); return AVar{};
-    }
-  }
-
-  CUDA AVar select_fvar(const VarEnv<allocator_type>& env, const float epsilon) {
-    const auto& strat = strategies[current_strategy];
-    const auto& vars = strat.vars;
-    switch(strat.var_order) {
-      case VariableOrder::RANDOM:
-      case VariableOrder::INPUT_ORDER: return vars.empty() ? AVar{var_aty, next_unassigned_var} : vars[next_unassigned_var];
-      case VariableOrder::FIRST_FAIL: return fvar_map_fold_left(vars, [](const universe_type& u) { return u.width().ub(); }, epsilon);
-      case VariableOrder::ANTI_FIRST_FAIL: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.width().ub()); }, epsilon);
-      case VariableOrder::LARGEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<LB>(u.ub()); }, epsilon);
-      case VariableOrder::SMALLEST: return fvar_map_fold_left(vars, [](const universe_type& u) { return dual_bound<UB>(u.lb()); }, epsilon);
       default: printf("BUG: unsupported variable order strategy\n"); assert(false); return AVar{};
     }
   }
@@ -338,6 +294,36 @@ private:
       a->template interpret_tell<true>(F::make_binary(F::make_avar(x), right_op, k, x.aty(), get_allocator()), empty_env, right, diagnostics);
       diagnostics.print();
       return branch_type(get_allocator());
+    }
+  }
+
+  template<class U> 
+  CUDA NI branch_type make_branch2(AVar x, Sig eq, const U& u1, const U& u2) {
+    if((u1.is_top() && U::preserve_top) || (u1.is_bot() && U::preserve_bot)) {
+      if(u1.is_top()) {
+        printf("%% WARNING: Cannot currently branch on unbounded variables.\n");
+      }
+      return branch_type(get_allocator());
+    }
+    if((u2.is_top() && U::preserve_top) || (u2.is_bot() && U::preserve_bot)) {
+      if(u2.is_top()) {
+        printf("%% WARNING: Cannot currently branch on unbounded variables.\n");
+      }
+      return branch_type(get_allocator());
+    }
+
+    using F = TFormula<allocator_type>;
+    using branch_vector = battery::vector<sub_tell_type, allocator_type>;
+    VarEnv<allocator_type> empty_env{};
+    auto k1 = u1.template deinterpret<F>(); 
+    auto k2 = u2.template deinterpret<F>();
+    IDiagnostics diagnostics;
+    sub_tell_type left(get_allocator());
+    sub_tell_type right(get_allocator());
+    bool res = a->interpret_tell(F::make_binary(F::make_avar(x), eq, k1, x.aty(), get_allocator()), empty_env, left, diagnostics);
+    res &= a->interpret_tell(F::make_binary(F::make_avar(x), eq, k2, x.aty(), get_allocator()), empty_env, right, diagnostics);
+    if(res) {
+      return Branch(branch_vector({std::move(left), std::move(right)}, get_allocator()));
     }
   }
 
@@ -491,12 +477,9 @@ public:
     if(a->is_bot()) {
       return branch_type(get_allocator());
     }
-    if(is_unknown(env, epsilon)) {
-      return branch_type(get_allocator());
-    }
-    fmove_to_next_unassigned_var(epsilon);
+    move_to_next_unassigned_var();
     if(current_strategy < strategies.size()) {
-      AVar x = select_fvar(env, epsilon);
+      AVar x = select_var();
       // printf("split on %d ", x.vid());
       const auto& dom = a->project(x);
       using value_type = decltype(dom.ub().value());
@@ -504,7 +487,14 @@ public:
       // printf("lb = %.20lf, ub = %.20lf, mid = %.20lf\n", dom.lb().value(), dom.ub().value(), mid);
       // if (x.vid() >= 6) return branch_type(get_allocator());
       switch(strategies[current_strategy].val_order) {
-        case ValueOrder::SPLIT: return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
+        case ValueOrder::SPLIT: {
+          if (dom.lb().value() != dom.ub().value() && dom.width().ub().value() <= epsilon){
+            return make_branch2(x, EQ, local::FLB::local_type(mid), local::FLB::local_type(dom.lb().value()));
+          }
+          else {
+            return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
+          }
+        }
         case ValueOrder::REVERSE_SPLIT: return make_branch(x, GEQ, LEQ, local::FLB::local_type(mid));
         default: printf("BUG: unsupported value order strategy\n"); assert(false); return branch_type(get_allocator());
       }
@@ -518,13 +508,14 @@ public:
   CUDA NI bool is_unknown(const VarEnv<allocator_type>& env, const float epsilon) {
     const auto& strat = strategies[current_strategy];
     const auto& vars = strat.vars;
+    int count = 0;
     for (int i = 0; i < vars.size(); ++i) {
       const auto& u = (*a)[vars[i].vid()];
-      if(u.width().ub().value() > epsilon) {
-        return false;
+      if(u.lb().value() == u.ub().value()) {
+        count++;
       }
     }
-    return true;
+    return count == vars.size() ? true : false;
   }
 
   CUDA size_t num_strategies() const {
