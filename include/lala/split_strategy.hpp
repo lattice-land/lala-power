@@ -75,6 +75,9 @@ enum class ValueOrder {
   // INTERVAL,
   // RANDOM,
   // MIDDLE,
+  LB_SPLIT,
+  UB_SPLIT,
+  MIX_SPLIT,
 };
 
 inline const char* string_of_value_order(ValueOrder order) {
@@ -84,6 +87,9 @@ inline const char* string_of_value_order(ValueOrder order) {
     case ValueOrder::MEDIAN: return "median";
     case ValueOrder::SPLIT: return "split";
     case ValueOrder::REVERSE_SPLIT: return "reverse_split";
+    case ValueOrder::LB_SPLIT: return "lb_split";
+    case ValueOrder::UB_SPLIT: return "ub_split";
+    case ValueOrder::MIX_SPLIT: return "mix_split";
     default: return "unknown";
   }
 }
@@ -104,6 +110,15 @@ std::optional<ValueOrder> value_order_of_string(const StringType& str) {
   }
   else if(str == "reverse_split") {
     return ValueOrder::REVERSE_SPLIT;
+  }
+  else if(str == "lb_split") {
+    return ValueOrder::LB_SPLIT;
+  }
+  else if(str == "ub_split") {
+    return ValueOrder::UB_SPLIT;
+  }
+  else if(str == "mix_split") {
+    return ValueOrder::MIX_SPLIT;
   }
   else {
     return std::nullopt;
