@@ -21,6 +21,7 @@ enum class VariableOrder {
   SMALLEST,
   LARGEST,
   RANDOM,
+  GRA_ANTI_FIRST_FAIL,
   // unsupported:
   // OCCURRENCE,
   // MOST_CONSTRAINED,
@@ -33,6 +34,7 @@ inline const char* string_of_variable_order(VariableOrder order) {
     case VariableOrder::INPUT_ORDER: return "input_order";
     case VariableOrder::FIRST_FAIL: return "first_fail";
     case VariableOrder::ANTI_FIRST_FAIL: return "anti_first_fail";
+    case VariableOrder::GRA_ANTI_FIRST_FAIL: return "gra_anti_first_fail";
     case VariableOrder::SMALLEST: return "smallest";
     case VariableOrder::LARGEST: return "largest";
     case VariableOrder::RANDOM: return "random";
@@ -50,6 +52,9 @@ std::optional<VariableOrder> variable_order_of_string(const StringType& str) {
   }
   else if(str == "anti_first_fail") {
     return VariableOrder::ANTI_FIRST_FAIL;
+  }
+  else if(str == "grad_anti_first_fail"){
+    return VariableOrder::GRA_ANTI_FIRST_FAIL;
   }
   else if(str == "smallest") {
     return VariableOrder::SMALLEST;
@@ -77,6 +82,9 @@ enum class ValueOrder {
   // MIDDLE,
   LB_SPLIT,
   UB_SPLIT,
+  MID_SPLIT,
+  MID_LB_SPLIT,
+  MID_UB_SPLIT,
   MIX_SPLIT,
 };
 
@@ -89,6 +97,9 @@ inline const char* string_of_value_order(ValueOrder order) {
     case ValueOrder::REVERSE_SPLIT: return "reverse_split";
     case ValueOrder::LB_SPLIT: return "lb_split";
     case ValueOrder::UB_SPLIT: return "ub_split";
+    case ValueOrder::MID_SPLIT: return "mid_split";
+    case ValueOrder::MID_LB_SPLIT: return "mid_lb_split";
+    case ValueOrder::MID_UB_SPLIT: return "mid_ub_split";
     case ValueOrder::MIX_SPLIT: return "mix_split";
     default: return "unknown";
   }
@@ -116,6 +127,15 @@ std::optional<ValueOrder> value_order_of_string(const StringType& str) {
   }
   else if(str == "ub_split") {
     return ValueOrder::UB_SPLIT;
+  }
+  else if(str == "mid_split") {
+    return ValueOrder::MID_SPLIT;
+  }
+  else if(str == "mid_lb_split"){
+    return ValueOrder::MID_LB_SPLIT;
+  }
+  else if(str == "mid_ub_split"){
+    return ValueOrder::MID_UB_SPLIT;
   }
   else if(str == "mix_split") {
     return ValueOrder::MIX_SPLIT;
@@ -340,6 +360,7 @@ private:
     if(res) {
       return Branch(branch_vector({std::move(left), std::move(right)}, get_allocator()));
     }
+    return branch_type(get_allocator());
   }
 
 public:
@@ -402,6 +423,7 @@ public:
     if(var_order_str == "input_order") { strat.var_order = VariableOrder::INPUT_ORDER; }
     else if(var_order_str == "first_fail") { strat.var_order = VariableOrder::FIRST_FAIL; }
     else if(var_order_str == "anti_first_fail") { strat.var_order = VariableOrder::ANTI_FIRST_FAIL; }
+    else if(var_order_str == "gra_anti_first_fail") { strat.var_order = VariableOrder::GRA_ANTI_FIRST_FAIL; }
     else if(var_order_str == "smallest") { strat.var_order = VariableOrder::SMALLEST; }
     else if(var_order_str == "largest") { strat.var_order = VariableOrder::LARGEST; }
     else if(var_order_str == "random") { strat.var_order = VariableOrder::RANDOM; }
@@ -416,6 +438,12 @@ public:
     }
     else if(val_order_str == "indomain_split") { strat.val_order = ValueOrder::SPLIT; }
     else if(val_order_str == "indomain_reverse_split") { strat.val_order = ValueOrder::REVERSE_SPLIT; }
+    else if(val_order_str == "indomain_lb_split") { strat.val_order = ValueOrder::LB_SPLIT; }
+    else if(val_order_str == "indomain_ub_split") { strat.val_order = ValueOrder::UB_SPLIT; }
+    else if(val_order_str == "indomain_mid_split") { strat.val_order = ValueOrder::MID_SPLIT; }
+    else if(val_order_str == "indomain_mid_lb_split") { strat.val_order = ValueOrder::MID_LB_SPLIT; }
+    else if(val_order_str == "indomain_mid_ub_split") { strat.val_order = ValueOrder::MID_UB_SPLIT; }
+    else if(val_order_str == "indomain_mix_split") { strat.val_order = ValueOrder::MIX_SPLIT; }
     else {
       RETURN_INTERPRETATION_ERROR("This value order strategy is unsupported.");
     }
