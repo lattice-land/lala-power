@@ -257,8 +257,16 @@ public:
     return pop(push(split->fsplit(env, epsilon)));
   }
 
+  CUDA bool is_solution(const VarEnv<allocator_type>& env) {
+    return split->is_solution(env);
+  }
+
   CUDA bool is_unknown(const VarEnv<allocator_type>& env, const float epsilon) {
     return split->is_unknown(env, epsilon);
+  }
+
+  CUDA bool is_uass() {
+    return split->get_uass();
   }
 
   template <class ExtractionStrategy = NonAtomicExtraction>
