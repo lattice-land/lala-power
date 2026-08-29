@@ -457,7 +457,7 @@ private:
 
 public:
   CUDA SplitStrategy(AType atype, AType var_aty, abstract_ptr<A> a, const allocator_type& alloc = allocator_type()):
-    atype(atype), var_aty(var_aty), a(a), current_strategy(0), next_unassigned_var(0), strategies(alloc)
+    atype(atype), var_aty(var_aty), a(a), current_strategy(0), next_unassigned_var(0), is_uass(false), strategies(alloc)
   {}
 
   template<class A2, class Alloc2, class... Allocators>
@@ -467,7 +467,8 @@ public:
      a(deps.template clone<A>(other.a)),
      strategies(other.strategies, deps.template get_allocator<allocator_type>()),
      current_strategy(other.current_strategy),
-     next_unassigned_var(other.next_unassigned_var)
+     next_unassigned_var(other.next_unassigned_var),
+     is_uass(other.is_uass)
   {}
 
   CUDA AType aty() const {
@@ -660,6 +661,14 @@ public:
             return make_uass_btk_branch(x, EQ, local::FLB::local_type(mid), local::FUB::local_type(dom.ub().value()));
           }
           else{
+            return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
+          }
+        }
+        case ValueOrder::MIX_SPLIT: {
+          if(dom.lb().value() != dom.ub().value() && dom.width().ub().value() <= epsilon) {
+            return make_uass_btk_branch(x, EQ, local::FLB::local_type(dom.lb().value()), local::FUB::local_type(dom.ub().value()));
+          }
+          else {
             return make_branch(x, LEQ, GEQ, local::FLB::local_type(mid));
           }
         }
