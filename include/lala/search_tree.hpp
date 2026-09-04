@@ -270,8 +270,8 @@ public:
   }
 
   template <class ExtractionStrategy = NonAtomicExtraction>
-  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy(), const float epsilon = 1e-6) const {
-    return !is_bot() && a->is_extractable(strategy, epsilon);
+  CUDA bool is_extractable(const ExtractionStrategy& strategy = ExtractionStrategy()) const {
+    return !is_bot() && a->is_extractable(strategy);
   }
 
   /** Extract an under-approximation if the last node popped \f$ a \f$ is an under-approximation.
